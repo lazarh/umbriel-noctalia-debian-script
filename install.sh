@@ -131,35 +131,40 @@ pkg_atleast() {
   return 1
 }
 
-setup_apt_sources() {
-  log 'Configuring APT sources'
-  require_root 'adding APT repositories'
+deps_preflight() {
+  info 'Preflight: base build tooling'
+  require_root 'running APT'
+
+  # Self-heal: if the host's sources.list already references trixie-backports
+  # but a stale sources.list.d/trixie-backports.list was added by an earlier
+  # run, drop the .d/ file so apt stops emitting "Target Packages configured
+  # multiple times" warnings.
+  if [[ -f /etc/apt/sources.list.d/trixie-backports.list ]] \
+    && grep -qE -- '(^| )trixie-backports' /etc/apt/sources.list 2>/dev/null; then
+    info 'Removing stale sources.list.d/trixie-backports.list (sources.list already has trixie-backports)'
+    sudo rm -f /etc/apt/sources.list.d/trixie-backports.list
+  fi
 
   # Fetch the Noctalia archive keyring to the system location via run_logged
   # so any curl-side error lands in the retained log, then sniff the
   # OpenPGP '99 02' header bytes so an upstream rotation or a bad body can't
-  # silently leave a broken keyring behind.
+  # silently leave a broken keyring behind. This step MUST run before the
+  # first apt-get update, otherwise InRelease signatures would never verify.
   info "Fetching Noctalia archive keyring to $NOCTALIA_KEYRING"
   run_logged sudo curl -fsSL "$NOCTALIA_KEY_URL" -o "$NOCTALIA_KEYRING"
   if ! head -c 2 "$NOCTALIA_KEYRING" | od -An -tx1 | tr -d ' \n' | grep -qx '9902'; then
     die "Fetched keyring at $NOCTALIA_KEYRING is not a valid OpenPGP block (missing 99 02 magic bytes)"
   fi
 
-  if ! grep -rq -- 'trixie-backports' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; then
-    info 'Adding Debian trixie-backports (wayland-protocols for Noctalia)'
-    echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian trixie-backports main' |
-      sudo tee /etc/apt/sources.list.d/trixie-backports.list >/dev/null
-  fi
-
   if [[ ! -f /etc/apt/sources.list.d/noctalia.sources ]]; then
-    info 'Adding Noctalia APT repository (wlroots 0.20, Wayland, libdrm, xkbcommon backports)'
+    info 'Adding Noctalia APT repository to /etc/apt/sources.list.d/'
     curl -fsSL "$NOCTALIA_SOURCES_URL" | sudo tee /etc/apt/sources.list.d/noctalia.sources >/dev/null
   fi
 
   # Noctalia's trixie-backports suite has libdrm/Wayland/xkbcommon that
   # Umbriel+wlroots depend on, but APT would default-pin it at 100 (standard
-  # backports priority) and refuse the upgrade when Debian's stable has older
-  # versions. Pin Noctalia origin above Debian stable so its newer packages win.
+  # backports priority) and refuse the upgrade against Debian stable. Pin
+  # Noctalia origin above Debian stable so its newer packages win.
   local pref='/etc/apt/preferences.d/noctalia.pref'
   if [[ ! -f "$pref" ]]; then
     info 'Pinning Noctalia origin above Debian stable'
@@ -171,7 +176,19 @@ EOF
   fi
 
   run_logged sudo apt-get update
+
+  if ! command -v curl >/dev/null; then
+    info 'Installing curl (required to fetch repositories and sources)'
+    apt_install 'installing curl' curl
+  fi
 }
+
+# APT sources are configured inside deps_preflight, so the keyring is in
+# place before the first apt-get update. setup_apt_sources/configure_apt
+# used to live here; they're harmless no-ops in case any caller still
+# references them.
+configure_apt() { :; }
+setup_apt_sources() { configure_apt; }
 
 install_noctalia_deps() {
   log 'Installing Noctalia build dependencies'
@@ -238,19 +255,8 @@ install_libinput() {
   pkg_atleast libinput 1.29 || die 'libinput source build did not satisfy >=1.29'
 }
 
-deps_preflight() {
-  info 'Preflight: base build tooling'
-  require_root 'running APT'
-  run_logged sudo apt-get update
-  if ! command -v curl >/dev/null; then
-    info 'Installing curl (required to fetch repositories and sources)'
-    apt_install 'installing curl' curl
-  fi
-}
-
 install_deps() {
   deps_preflight
-  setup_apt_sources
   install_noctalia_deps
   install_umbriel_deps
   install_runtime_deps
