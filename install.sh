@@ -21,8 +21,8 @@ readonly NOCTALIA_KEY_URL='https://pkg.noctalia.dev/deb/nickh-archive-keyring.gp
 readonly NOCTALIA_KEYRING='/usr/share/keyrings/nickh-archive-keyring.gpg'
 readonly NOCTALIA_SOURCES_URL='https://pkg.noctalia.dev/deb/noctalia-trixie.sources'
 
-log() { printf '\n==> %s\n' "$*"; }
-info() { printf '    %s\n' "$*"; }
+log() { printf '\n==> %s\n' "$*" >&2; }
+info() { printf '    %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 trap 'on_error' ERR
