@@ -87,11 +87,51 @@ that for you when no config exists).
 
 ## Testing
 
+The Installer has two complementary test surfaces.
+
+**Local harness.** `tests/run_tests.sh` exercises the Installer's option
+parsing behavior and asserts the script passes `bash -n`, is executable,
+and has no CRLF line endings; `tests/run_verify_tests.sh` exercises
+`docker/verify-install.sh` argument handling. Together they cover the parts
+that can be checked without booting Debian.
+
+**End-to-end harness (Docker).** Driving a real Debian 13 host by hand is
+expensive and hard to reproduce. `docker/test.sh` does this in a fresh
+container built from `debian:trixie-slim`: a non-root user with
+passwordless sudo, then each Installer operation in turn, with assertions
+between them.
+
 ```sh
-./tests/run_tests.sh
+docker/test.sh                  # deps + umbriel + noctalia (default)
+docker/test.sh deps             # one stage, fresh container
+docker/test.sh deps umbriel     # subset, in one retained container
 ```
 
-The harness exercises option parsing behavior (not string-sniffing), and
-checks the script passes `bash -n`, is executable, and has no CRLF line
-endings. A full clean-system run must be validated on a real Debian 13 amd64
-host.
+Every stage asserts explicit contract checks:
+
+- **`deps`** — `pkg-config --modversion libinput >= 1.29`;
+  `xdg-desktop-portal-umbriel` installed; `wayland-protocols >= 1.47`.
+- **`umbriel`** — the nine Umbriel build-contract files under `/usr/local`
+  (compositor binary, `start-umbriel`, `umbriel.desktop` session entry,
+  three systemd user units, packaged `config.toml`, both example shaders),
+  plus the `xwayland-satellite` companion.
+- **`noctalia`** — the shell binary, a non-empty assets tree,
+  `dev.noctalia.Noctalia.desktop`, the icon, and
+  `noctalia --version` reporting `v5.1.0`.
+
+Requirements: a Docker daemon, an amd64 host, ~10 GB free disk, network
+access to GitHub (Umbriel, Noctalia, xwayland-satellite), `crates.io`
+(satellite), the GitLab libinput tarball, and the Noctalia & Debian APT
+repositories. Expected cost on 8 cores: ~1–1.5 hours end-to-end (the
+Noctalia build alone is ~750 meson targets). On any failure the container
+is retained with the installer's state and log dir at
+`/home/test/.local/state/umbriel-noctalia-install/` for inspection
+(`docker exec -it <id> bash`).
+
+**Validation boundary.** The container proves the dependency contract, the
+pinned builds, the installed-file sets, and `noctalia --version`. It does
+*not* prove a usable session — there is no GPU, no seat assignment, and no
+running system/dbus user instance. Session startup, XFCE-style portal,
+and PipeWire runtime are intentionally left as manual tests on real
+hardware; see `Define usable-session integration and configuration
+boundaries` (#11) on the tracker for the open work there.
