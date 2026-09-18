@@ -17,7 +17,7 @@ readonly LIBINPUT_URL="https://gitlab.freedesktop.org/libinput/libinput/-/archiv
 readonly SATELLITE_REPO='https://github.com/Supreeeme/xwayland-satellite.git'
 readonly SATELLITE_COMMIT='8d135d3b2854b30fd01ea6cd6c27e523dd50a839'
 
-readonly NOCTALIA_KEY_URL='https://pkg.noctalia.dev/gpg.key'
+readonly NOCTALIA_KEY_URL='https://pkg.noctalia.dev/deb/nickh-archive-keyring.gpg'
 readonly NOCTALIA_KEYRING='/usr/share/keyrings/nickh-archive-keyring.gpg'
 readonly NOCTALIA_SOURCES_URL='https://pkg.noctalia.dev/deb/noctalia-trixie.sources'
 
@@ -135,15 +135,13 @@ setup_apt_sources() {
   log 'Configuring APT sources'
   require_root 'adding APT repositories'
 
+  info "Fetching Noctalia archive keyring to $NOCTALIA_KEYRING"
+  curl -fsSL "$NOCTALIA_KEY_URL" | sudo tee "$NOCTALIA_KEYRING" >/dev/null
+
   if [[ ! -f /etc/apt/sources.list.d/trixie-backports.list ]]; then
     info 'Adding Debian trixie-backports (wayland-protocols for Noctalia)'
     echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian trixie-backports main' |
       sudo tee /etc/apt/sources.list.d/trixie-backports.list >/dev/null
-  fi
-
-  if [[ ! -f "$NOCTALIA_KEYRING" ]]; then
-    info 'Installing Noctalia repository signing key'
-    curl -fsSL "$NOCTALIA_KEY_URL" | sudo gpg --batch --yes --dearmor -o "$NOCTALIA_KEYRING"
   fi
 
   if [[ ! -f /etc/apt/sources.list.d/noctalia.sources ]]; then
@@ -151,7 +149,21 @@ setup_apt_sources() {
     curl -fsSL "$NOCTALIA_SOURCES_URL" | sudo tee /etc/apt/sources.list.d/noctalia.sources >/dev/null
   fi
 
-  sudo apt-get update
+  # Noctalia's trixie-backports suite has libdrm/Wayland/xkbcommon that
+  # Umbriel+wlroots depend on, but APT would default-pin it at 100 (standard
+  # backports priority) and refuse the upgrade when Debian's stable has older
+  # versions. Pin Noctalia origin above Debian stable so its newer packages win.
+  local pref='/etc/apt/preferences.d/noctalia.pref'
+  if [[ ! -f "$pref" ]]; then
+    info 'Pinning Noctalia origin above Debian stable'
+    sudo tee "$pref" >/dev/null <<'EOF'
+Package: *
+Pin: origin "pkg.noctalia.dev"
+Pin-Priority: 990
+EOF
+  fi
+
+  run_logged sudo apt-get update
 }
 
 install_noctalia_deps() {
@@ -163,7 +175,7 @@ install_noctalia_deps() {
     libpango1.0-dev libharfbuzz-dev librsvg2-dev libxkbcommon-dev libglib2.0-dev \
     libsecret-1-dev libsodium-dev libsdbus-c++-dev libpipewire-0.3-dev \
     libwireplumber-0.5-dev libpam0g-dev libpolkit-agent-1-dev libpolkit-gobject-1-dev \
-    libcurl4-openssl-dev libwebp-dev libjxl-dev libsndfile1-dev libqalculate-dev \
+    libwebp-dev libjxl-dev libsndfile1-dev libqalculate-dev \
     libxml2-dev libmd4c-dev libtomlplusplus-dev libical-dev nlohmann-json3-dev \
     libstb-dev libjemalloc-dev
 }
@@ -222,6 +234,7 @@ install_libinput() {
 deps_preflight() {
   info 'Preflight: base build tooling'
   require_root 'running APT'
+  run_logged sudo apt-get update
   if ! command -v curl >/dev/null; then
     info 'Installing curl (required to fetch repositories and sources)'
     apt_install 'installing curl' curl
