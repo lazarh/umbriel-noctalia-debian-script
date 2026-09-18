@@ -57,7 +57,12 @@ file_or_die() {
 check_deps() {
   hdr
   local libinput_ver wp_ver wp_stripped
-  libinput_ver="$(pkg-config --modversion libinput 2>/dev/null || true)"
+  # Force pkg-config to look in the installer's prefix first, otherwise a
+  # system libinput present at >=1.29 would mask the source-built one in
+  # /usr/local.
+  local pkg_path="$PREFIX/lib/pkgconfig"
+  pkg_path+="${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  libinput_ver="$(PKG_CONFIG_PATH="$pkg_path" pkg-config --modversion libinput 2>/dev/null || true)"
   if ver_atleast "$libinput_ver" "1.29.0"; then
     ok "libinput $libinput_ver >= 1.29.0"
   else
@@ -112,7 +117,8 @@ check_noctalia() {
 
   XDG_DATA_DIRS="${XDG_DATA_DIRS:-$PREFIX/share:/usr/share}" \
     ver_out="$("$PREFIX/bin/noctalia" --version 2>&1 || true)"
-  if [[ "$ver_out" == *5.1.0* ]]; then
+  # Word-boundary match so 5.1.0 matches but 5.10.0 / 5.1.0-foo don't.
+  if printf '%s\n' "$ver_out" | grep -Eq '(^| )v?5\.1\.0([^.0-9]|$)'; then
     ok "noctalia --version: $ver_out"
   else
     err "noctalia --version did not report 5.1.0: $ver_out"

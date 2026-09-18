@@ -68,6 +68,12 @@ check "unknown option is rejected" "$(grep -q __UNKNOWN__ "$tmp/unknown.txt" && 
 check "install.sh has no CRLF line endings" "$(file "$SCRIPT_FILE" | grep -q 'CRLF' && echo 1 || echo 0)"
 check "install.sh is executable" "$([ -x "$SCRIPT_FILE" ] && echo 0 || echo 1)"
 check "install.sh passes bash -n" "$(bash -n "$SCRIPT_FILE" && echo 0 || echo 1)"
+if command -v shellcheck >/dev/null 2>&1; then
+  check "install.sh passes shellcheck (set -x if installed)" \
+    "$(shellcheck -x "$SCRIPT_FILE" >/dev/null 2>&1 && echo 0 || echo 1)"
+else
+  printf 'SKIP: shellcheck not installed on PATH; install it for full coverage\n' >&2
+fi
 
 printf '\n%d checks, %d failures\n' "$checks" "$failures"
 ((failures == 0))

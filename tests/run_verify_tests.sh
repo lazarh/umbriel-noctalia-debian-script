@@ -33,6 +33,13 @@ check "verify-install.sh has no CRLF line endings" \
 check "verify-install.sh passes bash -n" \
   "$(bash -n "$VER" && echo 0 || echo 1)"
 
+if command -v shellcheck >/dev/null 2>&1; then
+  check "verify-install.sh passes shellcheck (skipped if not installed)" \
+    "$(shellcheck -x "$VER" >/dev/null 2>&1 && echo 0 || echo 1)"
+else
+  printf 'SKIP: shellcheck not installed on PATH; install it for full coverage\n' >&2
+fi
+
 if bash "$VER" --help >/dev/null 2>&1; then
   ok=0
 else
