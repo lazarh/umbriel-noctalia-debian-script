@@ -135,10 +135,22 @@ setup_apt_sources() {
   log 'Configuring APT sources'
   require_root 'adding APT repositories'
 
+  # Verify the Noctalia archive keyring we are about to write is a real
+  # OpenPGP block (its header bytes are 99 02) so an upstream rotation or a
+  # broken curl can't silently leave a bad file behind.
   info "Fetching Noctalia archive keyring to $NOCTALIA_KEYRING"
-  curl -fsSL "$NOCTALIA_KEY_URL" | sudo tee "$NOCTALIA_KEYRING" >/dev/null
+  local tmp_key
+  tmp_key="$(mktemp)"
+  curl -fsSL "$NOCTALIA_KEY_URL" -o "$tmp_key"
+  if ! head -c 2 "$tmp_key" | od -An -tx1 | tr -d ' \n' | grep -qx '9902'; then
+    rm -f "$tmp_key"
+    die "Fetched keyring from $NOCTALIA_KEY_URL is not a valid OpenPGP block"
+  fi
+  require_root 'installing Noctalia archive key'
+  sudo install -m 0644 "$tmp_key" "$NOCTALIA_KEYRING"
+  rm -f "$tmp_key"
 
-  if [[ ! -f /etc/apt/sources.list.d/trixie-backports.list ]]; then
+  if ! grep -rq -- 'trixie-backports' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; then
     info 'Adding Debian trixie-backports (wayland-protocols for Noctalia)'
     echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian trixie-backports main' |
       sudo tee /etc/apt/sources.list.d/trixie-backports.list >/dev/null
