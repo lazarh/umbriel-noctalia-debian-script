@@ -6,16 +6,18 @@
 # Invocation:
 #   ./docker/test.sh                       # run every stage: deps umbriel noctalia
 #   ./docker/test.sh deps                  # one stage
-#   ./docker/test.sh deps noctalia         # subset (skips umbriel/satellite)
+#   ./docker/test.sh deps noctalia         # subset (skips umbriel)
 #
-# Stages default to: deps, umbriel, noctalia. On any failure the container
-# and its source/build state are retained with instructions for inspection;
-# on a fully green run the container is removed and the image is kept for
-# faster repeated runs.
+# Stages default to: deps, umbriel, noctalia. The harness always drives the
+# Installer with default flags, so the opt-in xwayland-satellite companion
+# (--with-satellite) is never built here; exercising it is a manual run.
+# On any failure the container and its source/build state are retained with
+# instructions for inspection; on a fully green run the container is removed
+# and the image is kept for faster repeated runs.
 #
 # Required on the host: amd64; a Docker daemon known to this user; ~10 GB free.
-# Expected cost on 8 cores: ~1 hour end-to-end (deps ~10 min, umbriel+satellite
-# ~15 min, noctalia 752 targets ~30-60 min).
+# Expected cost on 8 cores: ~45 min end-to-end (deps ~10 min, umbriel ~10 min,
+# noctalia 752 targets ~30 min).
 
 set -Eeuo pipefail
 

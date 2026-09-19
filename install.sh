@@ -47,9 +47,10 @@ Operations:
                 that autostarts Noctalia; never touches an existing config
 
 Options:
-  --no-satellite   Do not build the optional xwayland-satellite companion (no X11 app support)
-  -y, --yes        Assume "yes" for prompts
-  -h, --help       Show this help
+  --with-satellite   Also build the optional xwayland-satellite companion (X11 app
+                    support; pulls the Rust toolchain and the Xwayland server)
+  -y, --yes          Assume "yes" for prompts
+  -h, --help         Show this help
 
 With no operation given, an interactive menu is shown.
 Source trees and build directories are retained under $STATE_DIR.
@@ -57,7 +58,7 @@ EOF
 }
 
 opt_all=0 opt_deps=0 opt_umbriel=0 opt_noctalia=0 opt_configure=0
-opt_satellite=1
+opt_satellite=0
 opt_yes=0
 
 parse_args() {
@@ -68,7 +69,7 @@ parse_args() {
       --noctalia) opt_noctalia=1 ;;
       --all) opt_all=1 ;;
       --configure) opt_configure=1 ;;
-      --no-satellite) opt_satellite=0 ;;
+      --with-satellite) opt_satellite=1 ;;
       -y|--yes) opt_yes=1 ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown option: $1 (run --help)" ;;
@@ -244,7 +245,7 @@ install_runtime_deps() {
   log 'Installing runtime companions for a usable session'
   apt_install 'installing runtime companions' \
     pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-umbriel \
-    systemd dbus-user-session xwayland fonts-dejavu-core git
+    systemd dbus-user-session fonts-dejavu-core git
 }
 
 install_libinput() {
@@ -351,9 +352,9 @@ build_umbriel() {
 }
 
 build_satellite() {
-  ((opt_satellite)) || { info 'Skipping xwayland-satellite (--no-satellite)'; return 0; }
+  ((opt_satellite)) || { info 'Skipping xwayland-satellite (pass --with-satellite for X11 application support)'; return 0; }
   log 'Building optional xwayland-satellite (X11 application support)'
-  apt_install 'installing xwayland-satellite build prerequisites' rustc cargo clang libxcb1-dev libxcb-cursor-dev
+  apt_install 'installing xwayland-satellite build prerequisites' rustc cargo clang libxcb1-dev libxcb-cursor-dev xwayland
 
   local dir
   dir="$(clone_pinned xwayland-satellite "$SATELLITE_REPO" "$SATELLITE_COMMIT")"

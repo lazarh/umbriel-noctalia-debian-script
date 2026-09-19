@@ -7,7 +7,9 @@
 #   deps     libinput >=1.29 visible to pkg-config, xdg-desktop-portal-umbriel
 #            installed, wayland-protocols >= 1.47.
 #   umbriel  the nine files from the Umbriel build contract under PREFIX,
-#            plus the xwayland-satellite companion binary.
+#            plus the xwayland-satellite companion binary when it was
+#            built via the Installer's --with-satellite flag (absent-tolerant
+#            otherwise: the companion is opt-in).
 #   noctalia Noctalia binary, non-empty assets tree, desktop entry, icon,
 #            and `noctalia --version` reporting v5.1.0.
 
@@ -95,7 +97,10 @@ check_umbriel() {
   file_or_die "$PREFIX/share/umbriel/config.toml"
   file_or_die "$PREFIX/share/umbriel/shaders/reveal.glsl"
   file_or_die "$PREFIX/share/umbriel/shaders/squash.glsl"
-  file_or_die "$PREFIX/bin/xwayland-satellite"
+  # Opt-in companion: assert only when the Installer built it.
+  if [[ -x "$PREFIX/bin/xwayland-satellite" ]]; then
+    ok "exec: $PREFIX/bin/xwayland-satellite (opt-in companion)"
+  fi
 }
 
 check_noctalia() {
