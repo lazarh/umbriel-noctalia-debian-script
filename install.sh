@@ -9,13 +9,8 @@ readonly SOURCE_DIR="$STATE_DIR/src"
 readonly BUILD_DIR="$STATE_DIR/build"
 
 readonly UMBRIEL_REPO='https://github.com/noctalia-dev/umbriel.git'
-readonly UMBRIEL_COMMIT='76cede129dc3e86bfb1e3a0009829c06618c0fdb'
 readonly NOCTALIA_REPO='https://github.com/noctalia-dev/noctalia.git'
-readonly NOCTALIA_COMMIT='c7b9197af77ff22bfb9a83c52a95643a1d90ca86'
-readonly LIBINPUT_VERSION='1.29.0'
-readonly LIBINPUT_URL="https://gitlab.freedesktop.org/libinput/libinput/-/archive/${LIBINPUT_VERSION}/libinput-${LIBINPUT_VERSION}.tar.gz"
 readonly SATELLITE_REPO='https://github.com/Supreeeme/xwayland-satellite.git'
-readonly SATELLITE_COMMIT='8d135d3b2854b30fd01ea6cd6c27e523dd50a839'
 
 readonly NOCTALIA_KEY_URL='https://pkg.noctalia.dev/deb/nickh-archive-keyring.gpg'
 readonly NOCTALIA_KEYRING='/usr/share/keyrings/nickh-archive-keyring.gpg'
@@ -36,19 +31,19 @@ on_error() {
 
 usage() {
   cat <<EOF
-$SCRIPT_NAME - install Umbriel and Noctalia v5 from pinned sources on Debian 13 (Trixie) amd64
+$SCRIPT_NAME - install Umbriel and Noctalia v5 from current upstream sources on Debian 13 (Trixie) amd64
 
 Operations:
-  --deps        Install build and runtime dependencies (APT repos, packages, libinput source build)
-  --umbriel     Build and install Umbriel at the pinned revision (prefix $PREFIX)
-  --noctalia    Build and install Noctalia v5 at the pinned revision (prefix $PREFIX)
+  --deps        Install build and runtime dependencies (APT repos, packages; requires libinput >= 1.29)
+  --umbriel     Build and install Umbriel (prefix $PREFIX)
+  --noctalia    Build and install Noctalia v5 (prefix $PREFIX)
   --all         Run dependencies, then Umbriel, then Noctalia
   --configure   (optional, after --all/--noctalia) generate a first-time Umbriel config
                 that autostarts Noctalia; never touches an existing config
 
 Options:
   --with-satellite   Also build the optional xwayland-satellite companion (X11 app
-                    support; pulls the Rust toolchain and the Xwayland server)
+                     support; pulls the Rust toolchain and the Xwayland server)
   -y, --yes          Assume "yes" for prompts
   -h, --help         Show this help
 
@@ -121,11 +116,11 @@ apt_install() {
   # outside the requested set; a proposal that does means the host is in a
   # mixed or broken state (foreign suites like testing, half-finished
   # transitions) and executing it could uninstall unrelated software.
+  # The dry-run output is retained in the install log on every path.
   local sim
   sim="$(apt-get install -s -y "$@" 2>&1 || true)"
-  printf '%s\n' "$sim" >>"$log_file"
   if grep -qE 'will be (REMOVED|DOWNGRADED)' <<<"$sim"; then
-    printf '%s\n' "$sim" >&2
+    printf '%s\n' "$sim" | tee -a "$log_file" >&2
     die "apt proposed removing or downgrading packages while: $reason
 Refusing to execute. The host's APT state looks mixed or broken. Either:
   sudo apt --fix-broken install   # repair broken dependencies first, or
@@ -133,9 +128,10 @@ Refusing to execute. The host's APT state looks mixed or broken. Either:
   for the duration of this install, then re-run."
   fi
   if grep -q '^E: ' <<<"$sim"; then
-    printf '%s\n' "$sim" >&2
+    printf '%s\n' "$sim" | tee -a "$log_file" >&2
     die "apt could not resolve: $reason (see simulation above)"
   fi
+  printf '%s\n' "$sim" >>"$log_file"
 
   run_logged sudo apt-get install -y "$@"
 }
@@ -248,37 +244,32 @@ install_runtime_deps() {
     systemd dbus-user-session fonts-dejavu-core git
 }
 
-install_libinput() {
+require_libinput() {
   if pkg_atleast libinput 1.29; then
-    info 'libinput >=1.29 already available'
     return 0
   fi
 
-  log 'Building libinput >=1.29 from source (required by pinned Umbriel, absent from Debian repos)'
-  apt_install 'installing libinput build prerequisites' libudev-dev libevdev-dev libmtdev-dev libwacom-dev
+  die "libinput >=1.29 not found (pkg-config).
+Umbriel requires libinput >= 1.29, which Debian 13 stable does not ship.
+Install it from Debian 'testing' with these steps:
 
-  local dir="$SOURCE_DIR/libinput-$LIBINPUT_VERSION"
-  if [[ ! -d "$dir" ]]; then
-    info 'Fetching libinput source'
-    mkdir -p "$SOURCE_DIR"
-    curl -fsSL "$LIBINPUT_URL" -o "$SOURCE_DIR/libinput.tar.gz"
-    tar -xzf "$SOURCE_DIR/libinput.tar.gz" -C "$SOURCE_DIR"
-    rm -f "$SOURCE_DIR/libinput.tar.gz"
-  fi
+  1) Add the testing suite as an APT source:
+     echo 'deb http://deb.debian.org/debian testing main' \
+       | sudo tee /etc/apt/sources.list.d/testing.list
 
-  pushd "$dir" >/dev/null
-  if [[ ! -d build ]]; then
-    info 'Configuring libinput'
-    meson setup build --prefix="$PREFIX" --buildtype=release -Dtests=false -Ddocumentation=false -Ddebug-gui=false
-  fi
-  info 'Compiling libinput'
-  run_logged meson compile -C build
-  info 'Installing libinput (system-wide)'
-  run_logged sudo meson install -C build
-  sudo ldconfig
-  popd >/dev/null
+  2) Pin only the libinput package family to testing (everything else
+     stays on stable):
+     sudo tee /etc/apt/preferences.d/libinput-testing.pref >/dev/null <<'EOF'
+     Package: libinput* libevdev* libwacom*
+     Pin: release a=testing
+     Pin-Priority: 900
+     EOF
 
-  pkg_atleast libinput 1.29 || die 'libinput source build did not satisfy >=1.29'
+  3) Refresh and install the development package:
+     sudo apt update && sudo apt install libinput-dev
+
+  4) Re-run this script.
+"
 }
 
 install_deps() {
@@ -286,11 +277,11 @@ install_deps() {
   install_noctalia_deps
   install_umbriel_deps
   install_runtime_deps
-  install_libinput
+  require_libinput
 }
 
-clone_pinned() {
-  local name="$1" repo="$2" commit="$3"
+clone_upstream_tip() {
+  local name="$1" repo="$2"
   local dir="$SOURCE_DIR/$name"
   if [[ ! -d "$dir/.git" ]]; then
     info "Cloning $name"
@@ -298,32 +289,33 @@ clone_pinned() {
     git clone "$repo" "$dir"
   fi
   pushd "$dir" >/dev/null
-  if ! git rev-parse --verify -q "$commit^{commit}" >/dev/null; then
-    git fetch origin "$commit"
-  fi
+  info "Fetching $name upstream"
+  git fetch origin
   if [[ -n "$(git status --porcelain)" ]]; then
     die "$name source tree has local modifications; commit or discard them first"
   fi
-  git checkout --detach "$commit"
-  local head want
-  head="$(git rev-parse HEAD)"
-  want="$(git rev-parse "$commit^{commit}")"
-  [[ "$head" == "$want" ]] || die "$name checkout is $head, expected $want"
+  local ref
+  ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)" \
+    && ref="${ref#refs/remotes/origin/}" \
+    || ref="main"
+  git checkout --detach "origin/$ref"
+  info "$name checked out at $(git rev-parse --short HEAD) (origin/$ref tip)"
   popd >/dev/null
   printf '%s' "$dir"
 }
 
 meson_build() {
-  local name="$1" commit="$2" build="$3" bin="$4"
-  shift 4
+  local name="$1" build="$2" bin="$3"
+  shift 3
   mkdir -p "$BUILD_DIR"
   pushd "$SOURCE_DIR/$name" >/dev/null
-  local pinfile="$build/.pin"
-  if [[ ! -d "$build" ]] || [[ ! -f "$pinfile" ]] || [[ "$(cat "$pinfile")" != "$commit" ]]; then
+  local pinfile="$build/.pin" sha
+  sha="$(git rev-parse HEAD)"
+  if [[ ! -d "$build" ]] || [[ ! -f "$pinfile" ]] || [[ "$(cat "$pinfile")" != "$sha" ]]; then
     rm -rf "$build"
     info "Configuring $name"
     meson setup "$build" --prefix="$PREFIX" --buildtype=release "$@"
-    printf '%s' "$commit" >"$pinfile"
+    printf '%s' "$sha" >"$pinfile"
   fi
   info "Compiling $name"
   run_logged meson compile -C "$build"
@@ -347,8 +339,8 @@ umbriel_preflight() {
 
 build_umbriel() {
   umbriel_preflight
-  clone_pinned umbriel "$UMBRIEL_REPO" "$UMBRIEL_COMMIT" >/dev/null
-  meson_build umbriel "$UMBRIEL_COMMIT" "$BUILD_DIR/umbriel" umbriel -Dtests=disabled
+  clone_upstream_tip umbriel "$UMBRIEL_REPO" >/dev/null
+  meson_build umbriel "$BUILD_DIR/umbriel" umbriel -Dtests=disabled
 }
 
 build_satellite() {
@@ -357,7 +349,7 @@ build_satellite() {
   apt_install 'installing xwayland-satellite build prerequisites' rustc cargo clang libxcb1-dev libxcb-cursor-dev xwayland
 
   local dir
-  dir="$(clone_pinned xwayland-satellite "$SATELLITE_REPO" "$SATELLITE_COMMIT")"
+  dir="$(clone_upstream_tip xwayland-satellite "$SATELLITE_REPO")"
   pushd "$dir" >/dev/null
   info 'Compiling xwayland-satellite (release)'
   cargo build --release
@@ -370,8 +362,8 @@ build_satellite() {
 build_noctalia() {
   log 'Noctalia preflight'
   pkg_atleast wayland-protocols 1.45 || die 'wayland-protocols >=1.45 missing (run --deps)'
-  clone_pinned noctalia "$NOCTALIA_REPO" "$NOCTALIA_COMMIT" >/dev/null
-  meson_build noctalia "$NOCTALIA_COMMIT" "$BUILD_DIR/noctalia" noctalia \
+  clone_upstream_tip noctalia "$NOCTALIA_REPO" >/dev/null
+  meson_build noctalia "$BUILD_DIR/noctalia" noctalia \
     -Dtests=disabled -Dnative_optimizations=false -Djemalloc=auto
 }
 

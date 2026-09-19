@@ -2,23 +2,24 @@
 
 Builds and installs [Umbriel](https://github.com/noctalia-dev/umbriel) (a
 Wayland compositor) and [Noctalia](https://github.com/noctalia-dev/noctalia)
-v5 (a desktop shell) from **pinned source revisions** on **Debian 13 (Trixie)
+v5 (a desktop shell) from **current upstream sources** on **Debian 13 (Trixie)
 amd64**, into `/usr/local`.
 
 UmbrielFX is part of the Umbriel source tree and is built as part of the
 compositor; it is not a separate install target.
 
-## Pins
+## Sources
 
-| Component | Revision | Notes |
+| Component | Source | Notes |
 |---|---|---|
-| Umbriel | `76cede129dc3e86bfb1e3a0009829c06618c0fdb` | No upstream release tag; pinned to the verified commit |
-| Noctalia | `c7b9197af77ff22bfb9a83c52a95643a1d90ca86` | `v5.1.0` |
-| xwayland-satellite | `8d135d3b2854b30fd01ea6cd6c27e523dd50a839` | `v0.8.2`; opt-in X11 companion (`--with-satellite`) |
-| libinput | `1.29.0` | Built from source; see [Dependency notes](#dependency-notes) |
+| Umbriel | [noctalia-dev/umbriel](https://github.com/noctalia-dev/umbriel) | Default-branch tip, refreshed each run |
+| Noctalia | [noctalia-dev/noctalia](https://github.com/noctalia-dev/noctalia) | Default-branch tip; `v5.1.0` was the verified baseline |
+| xwayland-satellite | [Supreeeme/xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) | Default-branch tip; opt-in companion (`--with-satellite`) |
+| libinput | Debian `testing` suite | Required `>= 1.29`; see [Dependency notes](#dependency-notes) |
 
-These pins came from the effort's research tickets on the issue tracker; update
-them deliberately, then re-run to rebuild.
+The build scripts track each component's default branch and retain a
+per-component marker so that an unchanged checkout is not rebuilt while an
+upstream advance triggers a fresh build.
 
 ## Usage
 
@@ -53,21 +54,23 @@ autostarts Noctalia, only when no config already exists.
 2. Installs the full build dependency set for Noctalia and Umbriel, plus
    runtime companions (`pipewire`, `wireplumber`, `xdg-desktop-portal`,
    `xdg-desktop-portal-umbriel`, fonts).
-3. Builds **libinput 1.29.0** from source into `/usr/local` — see below.
+3. Requires **libinput >= 1.29** via pkg-config; prints guided Debian-testing
+   provisioning steps and stops when it is absent — see [Dependency notes](#dependency-notes).
 
 **`--umbriel`** — Meson release build (`-Dtests=disabled`) configured for the
 `/usr/local` prefix, compiled as the invoking user, installed with `sudo
-meson install`. This installs the compositor, its `start-umbriel` launcher,
-the `umbriel.desktop` wayland-session entry, systemd user units, and the
-packaged fallback config. X11 application support is opt-in: pass
-`--with-satellite` to also build the xwayland-satellite companion, which
-pulls the Rust toolchain and the Xwayland server. Without it, Umbriel
-simply starts without Xwayland — nothing breaks.
+meson install`. Builds from the default-branch tip; a retained pin marker
+avoids rebuilding an unchanged checkout. This installs the compositor, its
+`start-umbriel` launcher, the `umbriel.desktop` wayland-session entry,
+systemd user units, and the packaged fallback config. X11 application
+support is opt-in: pass `--with-satellite` to also build the
+xwayland-satellite companion, which pulls the Rust toolchain and the Xwayland
+server. Without it, Umbriel simply starts without Xwayland — nothing breaks.
 
 **`--noctalia`** — Meson release build with upstream's recommended flags
-(`-Dnative_optimizations=false -Djemalloc=auto`), installed to `/usr/local`.
-Meson owns the full install set: binary, the mandatory assets tree, desktop
-entry, and icon.
+(`-Dnative_optimizations=false -Djemalloc=auto`), built from the
+default-branch tip and installed to `/usr/local`. Meson owns the full
+install set: binary, the mandatory assets tree, desktop entry, and icon.
 
 After `--all`, select the **Umbriel** entry from your display manager's session
 menu. Noctalia must be in Umbriel's `[general] autostart` (`--configure` writes
@@ -81,11 +84,12 @@ that for you when no config exists).
 - **Umbriel** needs wlroots `>= 0.20.1, < 0.21`, Wayland `>= 1.24`,
   wayland-protocols `>= 1.47`, libdrm `>= 2.4.129` and xkbcommon `>= 1.8` — all
   provided by the Noctalia repo's `trixie-backports` suite.
-- **libinput**: the pinned Umbriel uses the const-correct
-  `libinput_config_accel_set_points()` API introduced in libinput 1.29.
-  Neither Debian 13 nor the referenced repos ship it, so the script builds
-  `1.29.0` from source. This is the known gap from the research tickets;
-  raising the Umbriel Meson floor upstream would remove it.
+- **libinput**: the current Umbriel uses the const-correct
+  `libinput_config_accel_set_points()` API introduced in libinput 1.29,
+  which Debian 13 stable does not ship. The installer checks for it via
+  pkg-config and, when absent, prints step-by-step instructions to add the
+  Debian `testing` suite, pin only the libinput package family to it, and
+  install `libinput-dev` before re-running.
 
 ## Testing
 
@@ -120,11 +124,11 @@ Every stage asserts explicit contract checks:
   `--with-satellite` (the harness runs default flags, so it never is).
 - **`noctalia`** — the shell binary, a non-empty assets tree,
   `dev.noctalia.Noctalia.desktop`, the icon, and
-  `noctalia --version` reporting `v5.1.0`.
+  `noctalia --version` reporting a version string (`v[0-9]…`).
 
 Requirements: a Docker daemon, an amd64 host, ~10 GB free disk, and network
-access to GitHub (Umbriel, Noctalia), the GitLab libinput tarball, and the
-Noctalia & Debian APT repositories. (A manual `--with-satellite` run would
+access to GitHub (Umbriel, Noctalia) and the Noctalia & Debian APT
+repositories. (A manual `--with-satellite` run would
 additionally need `crates.io` and the xwayland-satellite repository.) Expected cost on 8 cores: ~1–1.5 hours end-to-end (the
 Noctalia build alone is ~750 meson targets). On any failure the container
 is retained with the installer's state and log dir at
@@ -132,7 +136,7 @@ is retained with the installer's state and log dir at
 (`docker exec -it <id> bash`).
 
 **Validation boundary.** The container proves the dependency contract, the
-pinned builds, the installed-file sets, and `noctalia --version`. It does
+current upstream builds, the installed-file sets, and `noctalia --version`. It does
 *not* prove a usable session — there is no GPU, no seat assignment, and no
 running system/dbus user instance. Session startup, XFCE-style portal,
 and PipeWire runtime are intentionally left as manual tests on real
