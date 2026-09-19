@@ -114,6 +114,28 @@ apt_install() {
   local reason="$1"
   shift
   require_root "$reason"
+
+  # Safety gate: dry-run the transaction and refuse if apt proposes removing
+  # or downgrading anything. Our installs never legitimately mutate packages
+  # outside the requested set; a proposal that does means the host is in a
+  # mixed or broken state (foreign suites like testing, half-finished
+  # transitions) and executing it could uninstall unrelated software.
+  local sim
+  sim="$(apt-get install -s -y "$@" 2>&1 || true)"
+  printf '%s\n' "$sim" >>"$log_file"
+  if grep -qE 'will be (REMOVED|DOWNGRADED)' <<<"$sim"; then
+    printf '%s\n' "$sim" >&2
+    die "apt proposed removing or downgrading packages while: $reason
+Refusing to execute. The host's APT state looks mixed or broken. Either:
+  sudo apt --fix-broken install   # repair broken dependencies first, or
+  disable foreign suites (e.g. 'testing' entries in /etc/apt/sources.list.d/)
+  for the duration of this install, then re-run."
+  fi
+  if grep -q '^E: ' <<<"$sim"; then
+    printf '%s\n' "$sim" >&2
+    die "apt could not resolve: $reason (see simulation above)"
+  fi
+
   run_logged sudo apt-get install -y "$@"
 }
 
@@ -192,9 +214,12 @@ setup_apt_sources() { configure_apt; }
 
 install_noctalia_deps() {
   log 'Installing Noctalia build dependencies'
+  # No explicit suite qualifiers: the Noctalia origin pin already prefers the
+  # backported versions on a clean trixie host, and a hard qualifier would
+  # force a downgrade on hosts that already carry a newer wayland-protocols.
   apt_install 'installing Noctalia build dependencies' \
     meson g++ ninja-build pkg-config \
-    libwayland-dev wayland-protocols/trixie-backports \
+    libwayland-dev wayland-protocols \
     libegl-dev libgles-dev libfreetype-dev libfontconfig-dev libcairo2-dev \
     libpango1.0-dev libharfbuzz-dev librsvg2-dev libxkbcommon-dev libglib2.0-dev \
     libsecret-1-dev libsodium-dev libsdbus-c++-dev libpipewire-0.3-dev \
@@ -208,7 +233,7 @@ install_umbriel_deps() {
   log 'Installing Umbriel build dependencies'
   apt_install 'installing Umbriel build dependencies' \
     meson ninja-build pkg-config build-essential \
-    libwayland-bin libwayland-dev wayland-protocols/trixie-backports \
+    libwayland-bin libwayland-dev wayland-protocols \
     libwlroots-0.20-dev libxkbcommon-dev libpixman-1-dev libtomlplusplus-dev \
     nlohmann-json3-dev libcairo2-dev libpango1.0-dev libdrm-dev libegl-dev \
     libgles-dev libgbm-dev libudev-dev liblcms2-dev libjemalloc-dev \
