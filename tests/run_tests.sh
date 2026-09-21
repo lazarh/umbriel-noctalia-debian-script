@@ -58,7 +58,7 @@ run_parse "$tmp/repo.txt" --repo
 check "--repo alone enables only repo setup" "$(grep -q 'deps=0 repo=1 umbriel=0 noctalia=0 all=0 configure=0 satellite=0 yes=0' "$tmp/repo.txt" && echo 0 || echo 1)"
 
 run_parse "$tmp/all.txt" --all
-check "--all enables deps+umbriel+noctalia" "$(grep -q 'deps=1 repo=0 umbriel=1 noctalia=1 all=1' "$tmp/all.txt" && echo 0 || echo 1)"
+check "--all enables deps+umbriel+noctalia" "$(grep -q 'deps=1 repo=0 umbriel=1 noctalia=1 all=1 configure=0 satellite=0 yes=0' "$tmp/all.txt" && echo 0 || echo 1)"
 
 run_parse "$tmp/sat.txt" --satellite
 check "--satellite alone enables only the satellite" "$(grep -q 'deps=0 repo=0 umbriel=0 noctalia=0 all=0 configure=0 satellite=1 yes=0' "$tmp/sat.txt" && echo 0 || echo 1)"

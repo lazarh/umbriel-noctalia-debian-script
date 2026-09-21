@@ -329,7 +329,7 @@ setup_repo() {
   info 'For example:'
   info '  sudo apt install noctalia'
   info '  sudo apt install umbriel'
-  info '  sudo apt install noctalia-greeter   # pulls greetd; wiring greetd/PAM is manual'
+  info '  sudo apt install noctalia-greeter   # pulls greetd and dbus; wiring greetd/PAM is manual'
 }
 
 clone_upstream_tip() {
