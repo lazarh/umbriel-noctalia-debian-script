@@ -22,11 +22,12 @@ run_parse() {
       while (($#)); do
         case "$1" in
           --deps) opt_deps=1 ;;
+          --repo) opt_repo=1 ;;
           --umbriel) opt_umbriel=1 ;;
           --noctalia) opt_noctalia=1 ;;
+          --satellite) opt_satellite=1 ;;
           --all) opt_all=1 ;;
           --configure) opt_configure=1 ;;
-          --with-satellite) opt_satellite=1 ;;
           -y|--yes) opt_yes=1 ;;
           -h|--help) echo "__HELP__"; exit 0 ;;
           *) echo "__UNKNOWN__" ;;
@@ -34,10 +35,10 @@ run_parse() {
         shift
       done
       if ((opt_all)); then opt_deps=1; opt_umbriel=1; opt_noctalia=1; fi
-      printf "deps=%d umbriel=%d noctalia=%d all=%d configure=%d satellite=%d yes=%d\n" \
-        "$opt_deps" "$opt_umbriel" "$opt_noctalia" "$opt_all" "$opt_configure" "$opt_satellite" "$opt_yes"
+      printf "deps=%d repo=%d umbriel=%d noctalia=%d all=%d configure=%d satellite=%d yes=%d\n" \
+        "$opt_deps" "$opt_repo" "$opt_umbriel" "$opt_noctalia" "$opt_all" "$opt_configure" "$opt_satellite" "$opt_yes"
     }
-    opt_all=0 opt_deps=0 opt_umbriel=0 opt_noctalia=0 opt_configure=0 opt_satellite=0 opt_yes=0
+    opt_all=0 opt_deps=0 opt_repo=0 opt_umbriel=0 opt_noctalia=0 opt_configure=0 opt_satellite=0 opt_yes=0
     parse_args "$@"
   ' -- "$@" >"$out" 2>&1 || true
 }
@@ -51,16 +52,19 @@ run_parse "$tmp/help.txt" --help
 check "--help prints help without error" "$(grep -q __HELP__ "$tmp/help.txt" && echo 0 || echo 1)"
 
 run_parse "$tmp/single.txt" --noctalia
-check "--noctalia alone enables only noctalia" "$(grep -q 'deps=0 umbriel=0 noctalia=1 all=0 configure=0 satellite=0 yes=0' "$tmp/single.txt" && echo 0 || echo 1)"
+check "--noctalia alone enables only noctalia" "$(grep -q 'deps=0 repo=0 umbriel=0 noctalia=1 all=0 configure=0 satellite=0 yes=0' "$tmp/single.txt" && echo 0 || echo 1)"
+
+run_parse "$tmp/repo.txt" --repo
+check "--repo alone enables only repo setup" "$(grep -q 'deps=0 repo=1 umbriel=0 noctalia=0 all=0 configure=0 satellite=0 yes=0' "$tmp/repo.txt" && echo 0 || echo 1)"
 
 run_parse "$tmp/all.txt" --all
-check "--all enables deps+umbriel+noctalia" "$(grep -q 'deps=1 umbriel=1 noctalia=1 all=1' "$tmp/all.txt" && echo 0 || echo 1)"
+check "--all enables deps+umbriel+noctalia" "$(grep -q 'deps=1 repo=0 umbriel=1 noctalia=1 all=1' "$tmp/all.txt" && echo 0 || echo 1)"
 
-run_parse "$tmp/withsat.txt" --umbriel --with-satellite
-check "--umbriel --with-satellite enables satellite" "$(grep -q 'deps=0 umbriel=1 noctalia=0 all=0 configure=0 satellite=1 yes=0' "$tmp/withsat.txt" && echo 0 || echo 1)"
+run_parse "$tmp/sat.txt" --satellite
+check "--satellite alone enables only the satellite" "$(grep -q 'deps=0 repo=0 umbriel=0 noctalia=0 all=0 configure=0 satellite=1 yes=0' "$tmp/sat.txt" && echo 0 || echo 1)"
 
 run_parse "$tmp/combined.txt" --deps --noctalia --yes
-check "--deps --noctalia --yes sets flags deterministically" "$(grep -q 'deps=1 umbriel=0 noctalia=1 all=0 configure=0 satellite=0 yes=1' "$tmp/combined.txt" && echo 0 || echo 1)"
+check "--deps --noctalia --yes sets flags deterministically" "$(grep -q 'deps=1 repo=0 umbriel=0 noctalia=1 all=0 configure=0 satellite=0 yes=1' "$tmp/combined.txt" && echo 0 || echo 1)"
 
 run_parse "$tmp/unknown.txt" --bogus
 check "unknown option is rejected" "$(grep -q __UNKNOWN__ "$tmp/unknown.txt" && echo 0 || echo 1)"
@@ -69,15 +73,25 @@ check "install.sh has no CRLF line endings" "$(file "$SCRIPT_FILE" | grep -q 'CR
 check "install.sh is executable" "$([ -x "$SCRIPT_FILE" ] && echo 0 || echo 1)"
 check "install.sh passes bash -n" "$(bash -n "$SCRIPT_FILE" && echo 0 || echo 1)"
 
-if bash "$SCRIPT_FILE" --with-satellite --help >/dev/null 2>&1; then ok=0; else ok=1; fi
-check "real script accepts --with-satellite" "$ok"
+if bash "$SCRIPT_FILE" --repo --help >/dev/null 2>&1; then ok=0; else ok=1; fi
+check "real script accepts --repo" "$ok"
+
+if bash "$SCRIPT_FILE" --satellite --help >/dev/null 2>&1; then ok=0; else ok=1; fi
+check "real script accepts --satellite" "$ok"
+
+if bash "$SCRIPT_FILE" --with-satellite --help >/dev/null 2>&1; then ok=1; else ok=0; fi
+check "real script rejects the removed --with-satellite" "$ok"
 
 if bash "$SCRIPT_FILE" --no-satellite --help >/dev/null 2>&1; then ok=1; else ok=0; fi
 check "real script rejects --no-satellite" "$ok"
 
 usage_out="$(bash "$SCRIPT_FILE" --help 2>&1 || true)"
-check "--help documents --with-satellite" \
-  "$(grep -q -- '--with-satellite' <<<"$usage_out" && echo 0 || echo 1)"
+check "--help documents --repo" \
+  "$(grep -q -- '--repo' <<<"$usage_out" && echo 0 || echo 1)"
+check "--help documents --satellite" \
+  "$(grep -q -- '--satellite' <<<"$usage_out" && echo 0 || echo 1)"
+check "--help no longer documents --with-satellite" \
+  "$(grep -q -- '--with-satellite' <<<"$usage_out" && echo 1 || echo 0)"
 
 if command -v shellcheck >/dev/null 2>&1; then
   check "install.sh passes shellcheck (set -x if installed)" \

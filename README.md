@@ -14,7 +14,7 @@ compositor; it is not a separate install target.
 |---|---|---|
 | Umbriel | [noctalia-dev/umbriel](https://github.com/noctalia-dev/umbriel) | Default-branch tip, refreshed each run |
 | Noctalia | [noctalia-dev/noctalia](https://github.com/noctalia-dev/noctalia) | Default-branch tip; `v5.1.0` was the verified baseline |
-| xwayland-satellite | [Supreeeme/xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) | Default-branch tip; opt-in companion (`--with-satellite`) |
+| xwayland-satellite | [Supreeeme/xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) | Default-branch tip; standalone operation (`--satellite`) |
 | libinput | Debian `testing` suite | Required `>= 1.29`; see [Dependency notes](#dependency-notes) |
 
 The build scripts track each component's default branch and retain a
@@ -24,15 +24,16 @@ upstream advance triggers a fresh build.
 ## Usage
 
 ```sh
-./install.sh --deps        # repositories + packages + libinput source build
-./install.sh --umbriel     # build + install Umbriel (X11 support opt-in)
+./install.sh --deps        # repositories + build/runtime packages (libinput via Debian testing)
+./install.sh --repo        # set up the Noctalia APT repo (noctalia, umbriel, noctalia-greeter)
+./install.sh --umbriel     # build + install Umbriel
 ./install.sh --noctalia    # build + install Noctalia v5
+./install.sh --satellite   # build + install xwayland-satellite (X11 support)
 ./install.sh --all         # dependencies, Umbriel, Noctalia
 ./install.sh               # interactive menu
 ```
 
-Run `./install.sh --help` for all options (`--configure`, `--with-satellite`,
-`-y/--yes`).
+Run `./install.sh --help` for all options (`--configure`, `-y/--yes`).
 
 The script runs the build steps as your user and elevates only APT operations
 and the final install into `/usr/local`. Source clones live under
@@ -57,15 +58,30 @@ autostarts Noctalia, only when no config already exists.
 3. Requires **libinput >= 1.29** via pkg-config; prints guided Debian-testing
    provisioning steps and stops when it is absent — see [Dependency notes](#dependency-notes).
 
+**`--repo`**
+
+1. Writes the Noctalia archive keyring, `noctalia.sources`, and the 990
+   origin pin — the same repository setup `--deps` performs — then runs
+   `apt update`.
+2. Installs nothing. It reports the packages the repository now offers:
+   `noctalia` (the v5 shell, `trixie` suite), `umbriel` (the compositor,
+   `trixie-backports`), and `noctalia-greeter` (a greetd login screen,
+   `trixie-backports`; pulls `greetd` as a dependency).
+3. Use this when you want the packaged components instead of building from
+   source. The source-build operations remain available.
+
 **`--umbriel`** — Meson release build (`-Dtests=disabled`) configured for the
 `/usr/local` prefix, compiled as the invoking user, installed with `sudo
 meson install`. Builds from the default-branch tip; a retained pin marker
 avoids rebuilding an unchanged checkout. This installs the compositor, its
 `start-umbriel` launcher, the `umbriel.desktop` wayland-session entry,
-systemd user units, and the packaged fallback config. X11 application
-support is opt-in: pass `--with-satellite` to also build the
-xwayland-satellite companion, which pulls the Rust toolchain and the Xwayland
-server. Without it, Umbriel simply starts without Xwayland — nothing breaks.
+systemd user units, and the packaged fallback config.
+
+**`--satellite`** — builds the xwayland-satellite companion standalone (X11
+application support). It installs its own build prerequisites (`rustc`,
+`cargo`, `clang`, the XCB dev packages, the Xwayland server) and cargo-builds
+from the default-branch tip; it is independent of `--umbriel`. Without it,
+Umbriel simply starts without Xwayland — nothing breaks.
 
 **`--noctalia`** — Meson release build with upstream's recommended flags
 (`-Dnative_optimizations=false -Djemalloc=auto`), built from the
@@ -86,10 +102,13 @@ that for you when no config exists).
   provided by the Noctalia repo's `trixie-backports` suite.
 - **libinput**: the current Umbriel uses the const-correct
   `libinput_config_accel_set_points()` API introduced in libinput 1.29,
-  which Debian 13 stable does not ship. The installer checks for it via
-  pkg-config and, when absent, prints step-by-step instructions to add the
-  Debian `testing` suite, pin only the libinput package family to it, and
-  install `libinput-dev` before re-running.
+  which Debian 13 stable does not ship (trixie has 1.28; testing has 1.31).
+  The installer checks for it via pkg-config and, when absent, prints a
+  copy-paste-ready block that adds the Debian `testing` suite and pins the
+  libinput package family to it — one stanza each for `libinput*`,
+  `libevdev*`, and `libwacom*` — before installing `libinput-dev` and
+  re-running. The block is emitted flush-left so the preferences heredoc
+  survives copy-paste intact.
 
 ## Testing
 
@@ -121,14 +140,14 @@ Every stage asserts explicit contract checks:
   (compositor binary, `start-umbriel`, `umbriel.desktop` session entry,
   three systemd user units, packaged `config.toml`, both example shaders),
   plus the `xwayland-satellite` companion when it was built via
-  `--with-satellite` (the harness runs default flags, so it never is).
+  `--satellite` (the harness runs default flags, so it never is).
 - **`noctalia`** — the shell binary, a non-empty assets tree,
   `dev.noctalia.Noctalia.desktop`, the icon, and
   `noctalia --version` reporting a version string (`v[0-9]…`).
 
 Requirements: a Docker daemon, an amd64 host, ~10 GB free disk, and network
 access to GitHub (Umbriel, Noctalia) and the Noctalia & Debian APT
-repositories. (A manual `--with-satellite` run would
+repositories. (A manual `--satellite` run would
 additionally need `crates.io` and the xwayland-satellite repository.) Expected cost on 8 cores: ~1–1.5 hours end-to-end (the
 Noctalia build alone is ~750 meson targets). On any failure the container
 is retained with the installer's state and log dir at

@@ -9,8 +9,8 @@
 #   ./docker/test.sh deps noctalia         # subset (skips umbriel)
 #
 # Stages default to: deps, umbriel, noctalia. The harness always drives the
-# Installer with default flags, so the opt-in xwayland-satellite companion
-# (--with-satellite) is never built here; exercising it is a manual run.
+# Installer with default flags, so the standalone xwayland-satellite operation
+# (--satellite) is never run here; exercising it is a manual run.
 # On any failure the container and its source/build state are retained with
 # instructions for inspection; on a fully green run the container is removed
 # and the image is kept for faster repeated runs.

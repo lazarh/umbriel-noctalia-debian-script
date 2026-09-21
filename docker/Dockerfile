@@ -8,10 +8,22 @@ RUN apt-get update \
 
 # Provision libinput >= 1.29 from the Debian testing suite (trixie-stable
 # ships an older version that does not satisfy Umbriel's build requirement).
-# The narrow pin keeps everything else on stable.
+# The pin is split into one stanza per package family and kept flush-left,
+# mirroring the copy-paste guidance the installer prints for users.
 RUN echo 'deb http://deb.debian.org/debian testing main' \
       > /etc/apt/sources.list.d/testing.list \
- && printf 'Package: libinput* libevdev* libwacom*\nPin: release a=testing\nPin-Priority: 900\n' \
+ && printf '%s\n' \
+      'Package: libinput*' \
+      'Pin: release a=testing' \
+      'Pin-Priority: 900' \
+      '' \
+      'Package: libevdev*' \
+      'Pin: release a=testing' \
+      'Pin-Priority: 900' \
+      '' \
+      'Package: libwacom*' \
+      'Pin: release a=testing' \
+      'Pin-Priority: 900' \
       > /etc/apt/preferences.d/libinput-testing.pref \
  && apt-get update \
  && apt-get install -y --no-install-recommends libinput-dev \

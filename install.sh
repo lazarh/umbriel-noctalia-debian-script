@@ -35,15 +35,17 @@ $SCRIPT_NAME - install Umbriel and Noctalia v5 from current upstream sources on 
 
 Operations:
   --deps        Install build and runtime dependencies (APT repos, packages; requires libinput >= 1.29)
+  --repo        Set up the Noctalia APT repository (keyring, sources, pin) so noctalia,
+                umbriel, and noctalia-greeter can be installed with apt; installs nothing
   --umbriel     Build and install Umbriel (prefix $PREFIX)
   --noctalia    Build and install Noctalia v5 (prefix $PREFIX)
+  --satellite   Build and install the optional xwayland-satellite companion
+                (X11 app support; pulls the Rust toolchain and the Xwayland server)
   --all         Run dependencies, then Umbriel, then Noctalia
   --configure   (optional, after --all/--noctalia) generate a first-time Umbriel config
                 that autostarts Noctalia; never touches an existing config
 
 Options:
-  --with-satellite   Also build the optional xwayland-satellite companion (X11 app
-                     support; pulls the Rust toolchain and the Xwayland server)
   -y, --yes          Assume "yes" for prompts
   -h, --help         Show this help
 
@@ -52,7 +54,7 @@ Source trees and build directories are retained under $STATE_DIR.
 EOF
 }
 
-opt_all=0 opt_deps=0 opt_umbriel=0 opt_noctalia=0 opt_configure=0
+opt_all=0 opt_deps=0 opt_repo=0 opt_umbriel=0 opt_noctalia=0 opt_configure=0
 opt_satellite=0
 opt_yes=0
 
@@ -60,11 +62,13 @@ parse_args() {
   while (($#)); do
     case "$1" in
       --deps) opt_deps=1 ;;
+      --repo) opt_repo=1 ;;
       --umbriel) opt_umbriel=1 ;;
       --noctalia) opt_noctalia=1 ;;
+      --satellite) opt_satellite=1 ;;
+      --with-satellite) die "--with-satellite was replaced by --satellite (run --help)" ;;
       --all) opt_all=1 ;;
       --configure) opt_configure=1 ;;
-      --with-satellite) opt_satellite=1 ;;
       -y|--yes) opt_yes=1 ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown option: $1 (run --help)" ;;
@@ -150,20 +154,11 @@ pkg_atleast() {
   return 1
 }
 
-deps_preflight() {
-  info 'Preflight: base build tooling'
-  require_root 'running APT'
-
-  # Self-heal: if the host's sources.list already references trixie-backports
-  # but a stale sources.list.d/trixie-backports.list was added by an earlier
-  # run, drop the .d/ file so apt stops emitting "Target Packages configured
-  # multiple times" warnings.
-  if [[ -f /etc/apt/sources.list.d/trixie-backports.list ]] \
-    && grep -qE -- '(^| )trixie-backports' /etc/apt/sources.list 2>/dev/null; then
-    info 'Removing stale sources.list.d/trixie-backports.list (sources.list already has trixie-backports)'
-    sudo rm -f /etc/apt/sources.list.d/trixie-backports.list
-  fi
-
+# Write the Noctalia archive keyring, APT source, and origin pin. Shared by
+# --deps (which needs the backported wlroots/Wayland) and --repo (which offers
+# the packages without building anything). Idempotent: existing files are left
+# in place. Callers run apt-get update afterwards.
+setup_noctalia_repo() {
   # Fetch the Noctalia archive keyring to the system location via run_logged
   # so any curl-side error lands in the retained log, then sniff the
   # OpenPGP '99 02' header bytes so an upstream rotation or a bad body can't
@@ -193,6 +188,23 @@ Pin: origin "pkg.noctalia.dev"
 Pin-Priority: 990
 EOF
   fi
+}
+
+deps_preflight() {
+  info 'Preflight: base build tooling'
+  require_root 'running APT'
+
+  # Self-heal: if the host's sources.list already references trixie-backports
+  # but a stale sources.list.d/trixie-backports.list was added by an earlier
+  # run, drop the .d/ file so apt stops emitting "Target Packages configured
+  # multiple times" warnings.
+  if [[ -f /etc/apt/sources.list.d/trixie-backports.list ]] \
+    && grep -qE -- '(^| )trixie-backports' /etc/apt/sources.list 2>/dev/null; then
+    info 'Removing stale sources.list.d/trixie-backports.list (sources.list already has trixie-backports)'
+    sudo rm -f /etc/apt/sources.list.d/trixie-backports.list
+  fi
+
+  setup_noctalia_repo
 
   run_logged sudo apt-get update
 
@@ -249,27 +261,45 @@ require_libinput() {
     return 0
   fi
 
-  die "libinput >=1.29 not found (pkg-config).
+  # The guidance below is printed verbatim for the user to copy-paste, so its
+  # body is deliberately flush-left: any leading indentation would corrupt the
+  # preferences heredoc (including its EOF terminator) once pasted. The pin is
+  # split into one stanza per package family so each parses independently.
+  local guidance
+  guidance="$(cat <<'GUIDANCE'
 Umbriel requires libinput >= 1.29, which Debian 13 stable does not ship.
-Install it from Debian 'testing' with these steps:
+Install it from Debian 'testing', then re-run this script.
 
-  1) Add the testing suite as an APT source:
-     echo 'deb http://deb.debian.org/debian testing main' \
-       | sudo tee /etc/apt/sources.list.d/testing.list
+1) Add the testing suite as an APT source:
 
-  2) Pin only the libinput package family to testing (everything else
-     stays on stable):
-     sudo tee /etc/apt/preferences.d/libinput-testing.pref >/dev/null <<'EOF'
-     Package: libinput* libevdev* libwacom*
-     Pin: release a=testing
-     Pin-Priority: 900
-     EOF
+   echo 'deb http://deb.debian.org/debian testing main' | sudo tee /etc/apt/sources.list.d/testing.list
 
-  3) Refresh and install the development package:
-     sudo apt update && sudo apt install libinput-dev
+2) Pin only the libinput package family to testing (everything else stays on
+   stable). Each family gets its own stanza:
 
-  4) Re-run this script.
-"
+   sudo tee /etc/apt/preferences.d/libinput-testing.pref >/dev/null <<'EOF'
+Package: libinput*
+Pin: release a=testing
+Pin-Priority: 900
+
+Package: libevdev*
+Pin: release a=testing
+Pin-Priority: 900
+
+Package: libwacom*
+Pin: release a=testing
+Pin-Priority: 900
+EOF
+
+3) Refresh and install the development package:
+
+   sudo apt update && sudo apt install libinput-dev
+
+4) Re-run this script.
+GUIDANCE
+)"
+  die "libinput >=1.29 not found (pkg-config).
+$guidance"
 }
 
 install_deps() {
@@ -278,6 +308,28 @@ install_deps() {
   install_umbriel_deps
   install_runtime_deps
   require_libinput
+}
+
+# --repo: expose the Noctalia packages without building anything. Shares the
+# repository setup with --deps, then reports what apt can now install. The
+# package placement is fixed by the repository: noctalia is in the trixie
+# suite; umbriel and noctalia-greeter are in trixie-backports, both enabled
+# by the same noctalia-trixie.sources file.
+setup_repo() {
+  log 'Setting up the Noctalia APT repository'
+  require_root 'setting up the Noctalia APT repository'
+  setup_noctalia_repo
+  run_logged sudo apt-get update
+  log 'Noctalia APT repository is ready'
+  info 'The following packages are now installable with apt:'
+  info '  noctalia          Noctalia v5 desktop shell (trixie suite)'
+  info '  umbriel           Umbriel compositor (trixie-backports suite)'
+  info '  noctalia-greeter  greetd login screen (trixie-backports suite)'
+  info ''
+  info 'For example:'
+  info '  sudo apt install noctalia'
+  info '  sudo apt install umbriel'
+  info '  sudo apt install noctalia-greeter   # pulls greetd; wiring greetd/PAM is manual'
 }
 
 clone_upstream_tip() {
@@ -344,7 +396,6 @@ build_umbriel() {
 }
 
 build_satellite() {
-  ((opt_satellite)) || { info 'Skipping xwayland-satellite (pass --with-satellite for X11 application support)'; return 0; }
   log 'Building optional xwayland-satellite (X11 application support)'
   apt_install 'installing xwayland-satellite build prerequisites' rustc cargo clang libxcb1-dev libxcb-cursor-dev xwayland
 
@@ -391,19 +442,23 @@ menu() {
     cat <<EOF
 Choose an operation:
   1) Install dependencies
-  2) Install Umbriel
-  3) Install Noctalia
-  4) Install dependencies + Umbriel + Noctalia
-  5) Quit
+  2) Set up the Noctalia APT repository
+  3) Install Umbriel
+  4) Install Noctalia
+  5) Install xwayland-satellite
+  6) Install dependencies + Umbriel + Noctalia
+  7) Quit
 EOF
     local reply
     reply="$(read_menu)"
     case "$reply" in
       1) opt_deps=1 ;;
-      2) opt_umbriel=1 ;;
-      3) opt_noctalia=1 ;;
-      4) opt_deps=1; opt_umbriel=1; opt_noctalia=1 ;;
-      5) exit 0 ;;
+      2) opt_repo=1 ;;
+      3) opt_umbriel=1 ;;
+      4) opt_noctalia=1 ;;
+      5) opt_satellite=1 ;;
+      6) opt_deps=1; opt_umbriel=1; opt_noctalia=1 ;;
+      7) exit 0 ;;
       *) info 'Invalid choice'; continue ;;
     esac
     break
@@ -420,17 +475,23 @@ main() {
   log_file="$LOG_DIR/install-$ts.log"
   info "Log: $log_file"
 
-  if ! ((opt_deps || opt_umbriel || opt_noctalia)); then
+  if ! ((opt_deps || opt_repo || opt_umbriel || opt_noctalia || opt_satellite)); then
     menu
   fi
 
   if ((opt_deps)); then install_deps; fi
-  if ((opt_umbriel)); then build_umbriel; build_satellite; fi
+  if ((opt_repo)); then setup_repo; fi
+  if ((opt_umbriel)); then build_umbriel; fi
+  if ((opt_satellite)); then build_satellite; fi
   if ((opt_noctalia)); then build_noctalia; fi
   if ((opt_configure)); then configure_noctalia_autostart; fi
 
-  if ((opt_deps || opt_umbriel || opt_noctalia)); then
-    printf '\nDone. Session entries: %s/share/wayland-sessions/\n' "$PREFIX"
+  if ((opt_deps || opt_repo || opt_umbriel || opt_noctalia || opt_satellite)); then
+    if ((opt_umbriel || opt_noctalia)); then
+      printf '\nDone. Session entries: %s/share/wayland-sessions/\n' "$PREFIX"
+    else
+      printf '\nDone.\n'
+    fi
     info 'Log retained at: '"$log_file"
   fi
 }

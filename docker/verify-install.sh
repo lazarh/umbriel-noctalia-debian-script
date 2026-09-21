@@ -8,8 +8,8 @@
 #            installed, wayland-protocols >= 1.47.
 #   umbriel  the nine files from the Umbriel build contract under PREFIX,
 #            plus the xwayland-satellite companion binary when it was
-#            built via the Installer's --with-satellite flag (absent-tolerant
-#            otherwise: the companion is opt-in).
+#            built via the Installer's --satellite operation (absent-tolerant
+#            otherwise: the companion is standalone).
 #   noctalia Noctalia binary, non-empty assets tree, desktop entry, icon,
 #            and `noctalia --version` reporting v5.1.0.
 
